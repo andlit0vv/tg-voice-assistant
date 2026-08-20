@@ -1,0 +1,17 @@
+[project]
+name = "tg-voice-assistant"
+version = "0.1.0"
+description = "Personal Telegram companion that posts normalized text after outgoing voice messages."
+requires-python = ">=3.11"
+dependencies = [
+  "openai>=1.99.0",
+  "pydantic-settings>=2.10.0",
+  "telethon>=1.40.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0.0"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
