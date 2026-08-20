@@ -37,8 +37,8 @@ PYTHONPATH=src python -m tg_voice_assistant.app
 TELEGRAM_BOT_TOKEN=123456:your_bot_token_from_botfather
 TELEGRAM_POLL_TIMEOUT=50
 OPENAI_API_KEY=sk-your-key
-TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
-NORMALIZATION_MODEL=gpt-4.1-mini
+TRANSCRIPTION_MODEL=gpt-transcribe
+NORMALIZATION_MODEL=gpt-5-nano
 DATABASE_PATH=data/processed.sqlite3
 AUDIO_DIR=data/audio-tmp
 ```
