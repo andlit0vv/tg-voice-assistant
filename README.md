@@ -9,6 +9,7 @@
 - Также умеет работать как обычный бот: если отправить голосовое напрямую боту, он ответит текстом в чате с ботом.
 - Реагирует на voice messages, скачивает аудио во временную папку, отправляет его в OpenAI для транскрибации, нормализует текст и удаляет локальный аудиофайл после обработки.
 - Хранит обработанные `chat_id` и `message_id` в SQLite, чтобы перезапуски не создавали дубли.
+- Опционально логирует успешно обработанные голосовые сообщения и usage-метрики OpenAI в Google Sheets через Google Apps Script webhook.
 - Обрабатывает сообщения одного чата последовательно, чтобы несколько голосовых подряд получали текст в правильном порядке.
 - Не отправляет технические ошибки собеседнику: проблемы попадают только в логи и локальную таблицу статусов.
 
@@ -41,6 +42,7 @@ TRANSCRIPTION_MODEL=gpt-transcribe
 NORMALIZATION_MODEL=gpt-5-nano
 DATABASE_PATH=data/processed.sqlite3
 AUDIO_DIR=data/audio-tmp
+GOOGLE_SHEETS_WEBHOOK_URL=https://script.google.com/macros/s/your-deployment-id/exec
 ```
 
 - `TELEGRAM_BOT_TOKEN` - токен бота из BotFather.
@@ -50,6 +52,55 @@ AUDIO_DIR=data/audio-tmp
 - `NORMALIZATION_MODEL` - модель для превращения распознанной устной речи в готовое текстовое сообщение.
 - `DATABASE_PATH` - SQLite-база обработанных сообщений.
 - `AUDIO_DIR` - временная папка для скачанных голосовых.
+- `GOOGLE_SHEETS_WEBHOOK_URL` - необязательный URL Google Apps Script webhook для записи успешных обработок в Google Sheets. Если переменная пустая или webhook временно недоступен, бот продолжит отправлять пользователю нормализованный текст, а ошибка попадёт только в логи сервиса.
+
+## Логирование в Google Sheets
+
+1. Создайте Google Sheet с листом `Voice Logs`.
+2. Добавьте в Apps Script функцию `doPost(e)` и опубликуйте проект как Web app с доступом для вызывающего сервиса.
+3. Укажите URL публикации в `GOOGLE_SHEETS_WEBHOOK_URL`.
+
+Сервис отправляет JSON со следующими полями: `user_id`, `username`, `chat_id`, `message_id`, `transcription`, `normalized_text`, `processing_seconds`, `transcription_seconds`, `normalization_seconds`, `transcription_tokens`, `normalization_tokens`, `transcription_usage`, `normalization_usage`. Поля `*_usage` содержат все usage-метрики, которые вернул OpenAI API для этапа, и могут понадобиться для последующего расчёта стоимости.
+
+Пример расширенного Apps Script, совместимого с этими полями:
+
+```js
+function doPost(e) {
+  try {
+    const data = JSON.parse(e.postData.contents);
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName("Voice Logs");
+
+    if (!sheet) {
+      throw new Error('Sheet "Voice Logs" not found');
+    }
+
+    sheet.appendRow([
+      new Date(),
+      data.user_id || "",
+      data.username || "",
+      data.chat_id || "",
+      data.message_id || "",
+      data.transcription || "",
+      data.normalized_text || "",
+      data.processing_seconds || "",
+      data.transcription_seconds || "",
+      data.normalization_seconds || "",
+      data.transcription_tokens || "",
+      data.normalization_tokens || "",
+      JSON.stringify(data.transcription_usage || {}),
+      JSON.stringify(data.normalization_usage || {})
+    ]);
+
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: true }))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (error) {
+    return ContentService
+      .createTextOutput(JSON.stringify({ ok: false, error: String(error) }))
+      .setMimeType(ContentService.MimeType.JSON);
+  }
+}
+```
 
 ## Деплой на сервер
 

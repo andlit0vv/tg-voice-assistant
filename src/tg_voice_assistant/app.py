@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,7 +20,31 @@ class VoiceTask:
     chat_id: int
     message_id: int
     file_id: str
+    user_id: int | None = None
+    username: str | None = None
     business_connection_id: str | None = None
+
+
+class GoogleSheetsLogger:
+    def __init__(self, webhook_url: str | None) -> None:
+        self.webhook_url = webhook_url
+        self.client = httpx.AsyncClient(timeout=httpx.Timeout(10.0, connect=5.0)) if webhook_url else None
+
+    async def close(self) -> None:
+        if self.client:
+            await self.client.aclose()
+
+    async def log_voice_message(self, payload: dict[str, Any]) -> None:
+        if not self.webhook_url or not self.client:
+            return
+        try:
+            response = await self.client.post(self.webhook_url, json=payload)
+            response.raise_for_status()
+            data = response.json()
+            if data.get("ok") is False:
+                logger.warning("Google Sheets webhook rejected voice log: %s", data)
+        except Exception:
+            logger.warning("Failed to log voice message to Google Sheets", exc_info=True)
 
 
 class TelegramBotAPI:
@@ -74,6 +99,7 @@ class VoiceAssistant:
             settings.transcription_model,
             settings.normalization_model,
         )
+        self.sheets_logger = GoogleSheetsLogger(settings.google_sheets_webhook_url)
         self.chat_locks: defaultdict[int, asyncio.Lock] = defaultdict(asyncio.Lock)
         self.settings.audio_dir.mkdir(parents=True, exist_ok=True)
 
@@ -88,6 +114,7 @@ class VoiceAssistant:
                     await self._handle_update(update)
         finally:
             await self.telegram.close()
+            await self.sheets_logger.close()
 
     async def _handle_update(self, update: dict[str, Any]) -> None:
         if "business_connection" in update:
@@ -125,6 +152,8 @@ class VoiceAssistant:
             chat_id=chat_id,
             message_id=message_id,
             file_id=file_id,
+            user_id=(message.get("from") or {}).get("id"),
+            username=(message.get("from") or {}).get("username"),
             business_connection_id=message.get("business_connection_id"),
         )
 
@@ -132,13 +161,36 @@ class VoiceAssistant:
         audio_path = self._audio_path(task.chat_id, task.message_id)
         try:
             await self.telegram.download_file(task.file_id, audio_path)
-            transcript = await self.transcriber.transcribe(audio_path)
+            transcription_started = time.perf_counter()
+            transcription = await self.transcriber.transcribe_with_usage(audio_path)
+            transcription_seconds = time.perf_counter() - transcription_started
+            transcript = transcription.text
             if not transcript:
                 raise ValueError("empty transcription")
-            normalized = await self.transcriber.normalize(transcript)
+            normalization_started = time.perf_counter()
+            normalization = await self.transcriber.normalize_with_usage(transcript)
+            normalization_seconds = time.perf_counter() - normalization_started
+            normalized = normalization.text
             if not normalized:
                 raise ValueError("empty normalized text")
             await self.telegram.send_message(task.chat_id, normalized, task.business_connection_id)
+            await self.sheets_logger.log_voice_message(
+                {
+                    "user_id": task.user_id,
+                    "username": task.username,
+                    "chat_id": task.chat_id,
+                    "message_id": task.message_id,
+                    "transcription": transcript,
+                    "normalized_text": normalized,
+                    "processing_seconds": round(transcription_seconds + normalization_seconds, 3),
+                    "transcription_seconds": round(transcription_seconds, 3),
+                    "normalization_seconds": round(normalization_seconds, 3),
+                    "transcription_tokens": transcription.total_tokens,
+                    "normalization_tokens": normalization.total_tokens,
+                    "transcription_usage": transcription.usage,
+                    "normalization_usage": normalization.usage,
+                }
+            )
             self.store.mark_done(task.chat_id, task.message_id)
             logger.info("Processed voice %s/%s", task.chat_id, task.message_id)
         except Exception as exc:
