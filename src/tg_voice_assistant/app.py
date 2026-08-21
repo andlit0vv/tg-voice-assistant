@@ -38,7 +38,7 @@ class GoogleSheetsLogger:
         if not self.webhook_url or not self.client:
             return
         try:
-            response = await self.client.post(self.webhook_url, json=payload)
+            response = await self.client.post(self.webhook_url, json=payload,  follow_redirects=True)
             response.raise_for_status()
             data = response.json()
             if data.get("ok") is False:

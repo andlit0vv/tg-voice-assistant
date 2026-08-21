@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     telegram_poll_timeout: int = Field(50, alias="TELEGRAM_POLL_TIMEOUT")
     openai_api_key: str = Field(..., alias="OPENAI_API_KEY")
     transcription_model: str = Field("gpt-transcribe", alias="TRANSCRIPTION_MODEL")
-    normalization_model: str = Field("gpt-5-nano", alias="NORMALIZATION_MODEL")
+    normalization_model: str = Field("gpt-5.4-nano", alias="NORMALIZATION_MODEL")
     database_path: Path = Field(Path("data/processed.sqlite3"), alias="DATABASE_PATH")
     audio_dir: Path = Field(Path("data/audio-tmp"), alias="AUDIO_DIR")
     google_sheets_webhook_url: str | None = Field(None, alias="GOOGLE_SHEETS_WEBHOOK_URL")
